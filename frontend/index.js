@@ -28,6 +28,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window['WebSocket']) {
         console.log('Websocket suppport OK');
         wsCnn = new WebSocket(`ws://${document.location.host}/ws`);
+
+        //Add a listener to the onmessage event
+        wsCnn.onmessage = function (ev) {
+            console.log(ev);
+        }
     }
     else
         console.warn('Does NOT support Websocket');
