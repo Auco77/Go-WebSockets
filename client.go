@@ -41,6 +41,9 @@ func (c *Client) readMessages() {
 		c.manager.removeClient(c)
 	}()
 
+	//Set Max size of messages in bytes
+	c.connection.SetReadLimit(512)
+
 	//Configure Wait time for Pong response, use Current time + pongWait
 	//This has to be done here to set the first initial timer.
 	if err := c.connection.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
@@ -105,8 +108,14 @@ func (c *Client) writeMessages() {
 				return
 			}
 
+			data, err := json.Marshal(message)
+			if err != nil {
+				log.Println(err)
+				return //closes the connection, should we really
+			}
+
 			//Write a regular text to the connection
-			if err := c.connection.WriteMessage(websocket.TextMessage, message); err != nil {
+			if err := c.connection.WriteMessage(websocket.TextMessage, data); err != nil {
 				log.Println(err)
 			}
 			log.Println("send message")
