@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -46,12 +49,16 @@ type Manager struct {
 
 	//Handlers are functions that are used to handle events
 	handlers map[string]EventHandler
+
+	//otps is a map of allowed OTP to accept connections from
+	otps RetentionMap
 }
 
-func NewManager() *Manager {
+func NewManager(ctx context.Context) *Manager {
 	m := &Manager{
 		clients:  make(ClientList),
 		handlers: make(map[string]EventHandler),
+		otps:     NewRetentionMap(ctx, 5*time.Second),
 	}
 
 	m.setupEventHandlers()
@@ -80,7 +87,65 @@ func (m *Manager) routeEvent(event Event, c *Client) error {
 	return ErrEventNotSupported
 }
 
+// loginHandler is used to verify an user authentication and return a OneTimePassword
+func (m *Manager) loginHandler(w http.ResponseWriter, r *http.Request) {
+	type userLoginRequest struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	var req userLoginRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	//Authenticate user / Verify Access token, what ever auth method you use
+	if req.Username == "auco" && req.Password == "123" {
+		//format to return otp in to the frontend
+
+		type response struct {
+			OTP string `json:"otp"`
+		}
+
+		//add a new OTP
+		otp := m.otps.NewOTP()
+
+		resp := response{
+			OTP: otp.Key,
+		}
+
+		data, err := json.Marshal(resp)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		//Return a response to the Authenticated user with the OTP
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+		return
+	}
+
+	//Failure to auth
+	w.WriteHeader(http.StatusUnauthorized)
+}
+
 func (m *Manager) serveWS(w http.ResponseWriter, r *http.Request) {
+	//Grab the OTP in the Get param
+	otp := r.URL.Query().Get("otp")
+	if otp == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	//Verify OTP is existing
+	if !m.otps.VerifyOTP((otp)) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	log.Println("new conection")
 
 	//upgrade regular http connection into websocket
